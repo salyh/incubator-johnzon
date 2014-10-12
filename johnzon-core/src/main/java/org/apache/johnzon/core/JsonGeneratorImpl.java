@@ -586,7 +586,7 @@ class JsonGeneratorImpl implements JsonGenerator, JsonChars, Serializable {
             return;
         }
 
-        for (int i = 0; i < value.length(); i++) {
+        for (int i = 0; i < len; i++) {
             char c = value.charAt(i);
 
             while (c != ESCAPE_CHAR && c != QUOTE_CHAR && c >= SPACE) {
