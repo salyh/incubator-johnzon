@@ -76,14 +76,15 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
     // location (line, column, offset)
     // We try to calculate this efficiently so we do not just increment the values per char read
     // Instead we calculate the column and offset relative to the pastBufferReadCount and/or lastLineBreakPosition.
-    private long currentLine = 1;
-    private long lastLineBreakPosition;
-    private long pastBufferReadCount;
+    //private long currentLine = 1;
+    //private long lastLineBreakPosition;
+    //private long pastBufferReadCount;
 
     //cache (if current value is a number) integral state and the number itself if its only one digit    
     private boolean isCurrentNumberIntegral = true;
-    private Integer currentIntegralNumber; //for number from 0 - 9
-
+    private int currentIntegralNumber = Integer.MIN_VALUE; //for number from 0 - 9
+    private boolean stringValueRead = false;
+    private boolean numberValueRead = false;
     //maybe we want also cache BigDecimals
     //private BigDecimal currentBigDecimalNumber = null;
 
@@ -153,6 +154,47 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
             readBytes = true;
         }
 
+    }
+
+    private void readStringSafe() {
+
+        if(!stringValueRead) {
+            readString();
+            stringValueRead=true;
+        }
+    }
+
+    private void readNumberSafe() {
+
+        if(!numberValueRead) {
+            readNumber();
+            numberValueRead=true;
+        }
+    }
+
+    private void skipStringSafe() {
+
+        if(!stringValueRead) {
+            skipString();
+        }
+    }
+
+    private void skipNumberSafe() {
+
+        if(!numberValueRead) {
+            skipNumber();
+        }
+    }
+
+    private void resetValueTracker() {
+
+        if(numberValueRead) {
+            numberValueRead=false;
+        }
+
+        if(stringValueRead) {
+            stringValueRead=false;
+        }
     }
 
     //append a single char to the value buffer
@@ -227,20 +269,21 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
 
         //we start with column = 1, so column is always >= 1
         //APi is not clear in this, but starting column with 1 is convenient
-        long column = 1;
-        long charOffset = 0;
+        //long column = 1;
+        //long charOffset = 0;
 
-        if (bufferPos >= -1) {
+        //if (bufferPos >= -1) {
 
-            charOffset = pastBufferReadCount + bufferPos + 1;
-            column = lastLineBreakPosition == 0 ? charOffset + 1 : charOffset - lastLineBreakPosition;
-        }
+        //   charOffset = pastBufferReadCount + bufferPos + 1;
+        //  column = lastLineBreakPosition == 0 ? charOffset + 1 : charOffset - lastLineBreakPosition;
+        //}
 
         //For now its unclear how to calculate offset for (byte) inputsream.
         //API says count bytes but thats dependent on encoding and not efficient
         //skip this for now, count always bytes and defer this until the JSR TCK arrives.
 
-        return new JsonLocationImpl(currentLine, column, charOffset);
+        //return new JsonLocationImpl(currentLine, column, charOffset);
+        return JsonLocationImpl.UNKNOWN_LOCATION;
     }
 
     //read the next char from the stream and set/increment the bufferPos
@@ -261,9 +304,9 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
                 startOfValueInBuffer = 0;
             }
 
-            if (bufferPos >= -1) {
+           /* if (bufferPos >= -1) {
                 pastBufferReadCount += availableCharsInBuffer;
-            }
+            }*/
 
             try {
                 availableCharsInBuffer = in.read(buffer, 0, buffer.length);
@@ -301,7 +344,7 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
 
         while (c == SPACE || c == TAB || c == CR || c == EOL) {
 
-            if (c == EOL) {
+            /*if (c == EOL) {
                 currentLine++;
                 lastLineBreakPosition = pastBufferReadCount + bufferPos;
             }
@@ -310,7 +353,7 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
             if (dosCount >= maxValueLength) {
                 throw tmc();
             }
-            dosCount++;
+            dosCount++;*/
 
             //read next character
             c = readNextChar();
@@ -331,6 +374,15 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
         if (previousEvent != 0 && currentStructureElement == null) {
             throw uexc("Unexpected end of structure");
         }
+
+        if(previousEvent == VALUE_NUMBER) {
+            skipNumberSafe();
+        }
+
+        if(previousEvent == VALUE_STRING || previousEvent == KEY_NAME) {
+            skipStringSafe();
+        }
+
 
         final char c = readNextNonWhitespaceChar();
 
@@ -363,13 +415,15 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
         //        if (currentBigDecimalNumber != null) {
         //            currentBigDecimalNumber = null;
         //        }
-        if (currentIntegralNumber != null) {
-            currentIntegralNumber = null;
+        if (currentIntegralNumber != Integer.MIN_VALUE) {
+            currentIntegralNumber = Integer.MIN_VALUE;
         }
 
         if (fallBackCopyBufferLength != 0) {
             fallBackCopyBufferLength = 0;
         }
+
+        resetValueTracker();
 
         startOfValueInBuffer = endOfValueInBuffer = -1;
 
@@ -489,6 +543,25 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
         currentStructureElement = currentStructureElement.previous;
 
         return EVT_MAP[previousEvent = END_ARRAY];
+    }
+
+
+    private void skipString() {
+        char n = 0;
+        char last = 0;
+
+        while(true) {
+
+            while ((n = readNextChar()) != QUOTE_CHAR) {
+                //read fast
+                last = n;
+            }
+
+            if(last != ESCAPE_CHAR) {
+                break;
+            }
+
+        }
     }
 
     //read a string, gets called recursively
@@ -618,7 +691,7 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
             throw uexc("Expected : { [ ,");
         }
         //starting quote already consumed
-        readString();
+        //readString();
         //end quote already consumed
 
         //make the decision if its an key or value
@@ -642,6 +715,15 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
             return EVT_MAP[previousEvent = KEY_NAME];
         }
 
+    }
+
+    private void skipNumber() {
+        char n = 0;
+        while ((n = readNextChar()) != COMMA_CHAR && n != END_ARRAY_CHAR && n!= END_OBJECT_CHAR) {
+            //read fast
+        }
+
+        bufferPos--; //unread one char
     }
 
     //read a number
@@ -793,7 +875,7 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
                 return EVT_MAP[previousEvent = VALUE_NULL];
 
             default:
-                readNumber();
+                //readNumber();
                 return EVT_MAP[previousEvent = VALUE_NUMBER];
         }
 
@@ -802,6 +884,8 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
     @Override
     public String getString() {
         if (previousEvent == KEY_NAME || previousEvent == VALUE_STRING || previousEvent == VALUE_NUMBER) {
+
+            readStringSafe();
 
             //if there a content in the value buffer read from them, if not use main buffer
             return fallBackCopyBufferLength > 0 ? new String(fallBackCopyBuffer, 0, fallBackCopyBufferLength) : new String(buffer,
@@ -817,25 +901,29 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
         if (previousEvent != VALUE_NUMBER) {
             throw new IllegalStateException(EVT_MAP[previousEvent] + " doesn't support isIntegralNumber()");
         } else {
+            readNumberSafe();
             return isCurrentNumberIntegral;
         }
     }
 
     @Override
     public int getInt() {
+
+        readNumberSafe();
+
         if (previousEvent != VALUE_NUMBER) {
             throw new IllegalStateException(EVT_MAP[previousEvent] + " doesn't support getInt()");
-        } else if (isCurrentNumberIntegral && currentIntegralNumber != null) {
+        } else if (isCurrentNumberIntegral && currentIntegralNumber != Integer.MIN_VALUE) {
             return currentIntegralNumber;
         } else if (isCurrentNumberIntegral) {
             //if there a content in the value buffer read from them, if not use main buffer
-            final Integer retVal = fallBackCopyBufferLength > 0 ? parseIntegerFromChars(fallBackCopyBuffer, 0, fallBackCopyBufferLength)
-                    : parseIntegerFromChars(buffer, startOfValueInBuffer, endOfValueInBuffer);
-            if (retVal == null) {
+            try {
+                return fallBackCopyBufferLength > 0 ? parseIntegerFromChars(fallBackCopyBuffer, 0, fallBackCopyBufferLength)
+                        : parseIntegerFromChars(buffer, startOfValueInBuffer, endOfValueInBuffer);
+            } catch (NumberOverflowException e) {
                 return getBigDecimal().intValue();
-            } else {
-                return retVal.intValue();
             }
+
         } else {
             return getBigDecimal().intValue();
         }
@@ -843,19 +931,23 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
 
     @Override
     public long getLong() {
+
+        readNumberSafe();
+
         if (previousEvent != VALUE_NUMBER) {
             throw new IllegalStateException(EVT_MAP[previousEvent] + " doesn't support getLong()");
-        } else if (isCurrentNumberIntegral && currentIntegralNumber != null) {
+        } else if (isCurrentNumberIntegral && currentIntegralNumber != Integer.MIN_VALUE) {
             return currentIntegralNumber;
         } else if (isCurrentNumberIntegral) {
             //if there a content in the value buffer read from them, if not use main buffer
-            final Long retVal = fallBackCopyBufferLength > 0 ? parseLongFromChars(fallBackCopyBuffer, 0, fallBackCopyBufferLength)
+
+            try {
+            return fallBackCopyBufferLength > 0 ? parseLongFromChars(fallBackCopyBuffer, 0, fallBackCopyBufferLength)
                     : parseLongFromChars(buffer, startOfValueInBuffer, endOfValueInBuffer);
-            if (retVal == null) {
+            } catch (NumberOverflowException e) {
                 return getBigDecimal().longValue();
-            } else {
-                return retVal.longValue();
             }
+
         } else {
             return getBigDecimal().longValue();
         }
@@ -864,23 +956,27 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
 
     @Override
     public BigDecimal getBigDecimal() {
+
+        readNumberSafe();
+
         if (previousEvent != VALUE_NUMBER) {
             throw new IllegalStateException(EVT_MAP[previousEvent] + " doesn't support getBigDecimal()");
             //        } else if (currentBigDecimalNumber != null) {
             //            return currentBigDecimalNumber;
-        } else if (isCurrentNumberIntegral && currentIntegralNumber != null) {
+        } else if (isCurrentNumberIntegral && currentIntegralNumber != Integer.MIN_VALUE) {
             return new BigDecimal(currentIntegralNumber);
         } else if (isCurrentNumberIntegral) {
             //if there a content in the value buffer read from them, if not use main buffer
-            final Long retVal = fallBackCopyBufferLength > 0 ? parseLongFromChars(fallBackCopyBuffer, 0, fallBackCopyBufferLength)
+            try {
+            final long retVal = fallBackCopyBufferLength > 0 ? parseLongFromChars(fallBackCopyBuffer, 0, fallBackCopyBufferLength)
                     : parseLongFromChars(buffer, startOfValueInBuffer, endOfValueInBuffer);
-            if (retVal == null) {
+                return (/*currentBigDecimalNumber = */new BigDecimal(retVal));
+            } catch (NumberOverflowException e) {
                 return (/*currentBigDecimalNumber = */fallBackCopyBufferLength > 0 ? new BigDecimal(fallBackCopyBuffer, 0,
                         fallBackCopyBufferLength) : new BigDecimal(buffer, startOfValueInBuffer,
                         (endOfValueInBuffer - startOfValueInBuffer)));
-            } else {
-                return (/*currentBigDecimalNumber = */new BigDecimal(retVal.longValue()));
             }
+
         } else {
             //if there a content in the value buffer read from them, if not use main buffer
             return (/*currentBigDecimalNumber = */fallBackCopyBufferLength > 0 ? new BigDecimal(fallBackCopyBuffer, 0,
@@ -909,14 +1005,14 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
     //parse a char[] to long while checking overflow
     //if overflowed return null
     //no additional checks since we are sure here that there are no non digits in the array
-    private static Long parseLongFromChars(final char[] chars, final int start, final int end) {
+    private static long parseLongFromChars(final char[] chars, final int start, final int end) {
 
         long retVal = 0;
         final boolean negative = chars[start] == MINUS;
         for (int i = negative ? start + 1 : start; i < end; i++) {
             final long tmp = retVal * 10 + (chars[i] - ZERO);
             if (tmp < retVal) { //check overflow
-                return null;
+                throw new NumberOverflowException();
             } else {
                 retVal = tmp;
             }
@@ -928,14 +1024,14 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
     //parse a char[] to int while checking overflow
     //if overflowed return null
     //no additional checks since we are sure here that there are no non digits in the array
-    private static Integer parseIntegerFromChars(final char[] chars, final int start, final int end) {
+    private static int parseIntegerFromChars(final char[] chars, final int start, final int end) {
 
         int retVal = 0;
         final boolean negative = chars[start] == MINUS;
         for (int i = negative ? start + 1 : start; i < end; i++) {
             final int tmp = retVal * 10 + (chars[i] - ZERO);
             if (tmp < retVal) { //check overflow
-                return null;
+                throw new NumberOverflowException();
             } else {
                 retVal = tmp;
             }
@@ -970,5 +1066,18 @@ public class JsonStreamParserImpl implements JsonChars, JsonParser{
         final JsonLocation location = createLocation();
         return new JsonParsingException("General exception on " + location + ". Reason is [[" + message + "]]", location);
     }
+
+
+    private static final class NumberOverflowException extends RuntimeException
+    {
+        NumberOverflowException(){
+
+        }
+        @Override
+        public Throwable fillInStackTrace() {
+            return this;
+        }
+    }
+
 
 }
