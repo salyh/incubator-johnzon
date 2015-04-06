@@ -52,6 +52,7 @@
     <module>johnzon-mapper</module>
     <module>johnzon-jaxrs</module>
     <module>johnzon-websocket</module>
+    <module>johnzon-mutable</module>
     <module>johnzon-distribution</module>
   </modules>
 
